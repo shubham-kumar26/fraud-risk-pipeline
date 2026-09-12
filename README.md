@@ -203,7 +203,7 @@ This extension closes that gap: a natural-language interface, built on top of th
 
 **Demo:**
 
-![Question, generated SQL, and results table showing the credit card with the highest fraud amount](./)
+![Question, generated SQL, and results table showing the credit card with the highest fraud amount](./demo.png)
 
 *Example: asking "which credit card has the highest fraud amount" correctly generates a `GROUP BY`/`ORDER BY` query and returns the right answer — consistent with the SQL analysis in Section 1.*
 
