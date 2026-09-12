@@ -1,17 +1,18 @@
-
 # Fraud Risk Pipeline
-### End-to-End Fraud Detection Using SQL Analytics, Machine Learning, and Business Intelligence
+### End-to-End Fraud Detection Using SQL Analytics, Machine Learning, GenAI, and Business Intelligence
 
 [![Live Dashboard](https://img.shields.io/badge/Power%20BI-Live%20Dashboard-yellow)](https://app.powerbi.com/links/AvMnaDKVLh?ctid=bc5b2879-3fac-469a-b8c4-994705bc09d7&pbi_source=linkShare)
 ![Python](https://img.shields.io/badge/Python-3.13-blue)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue)
 ![scikit--learn](https://img.shields.io/badge/scikit--learn-ML-orange)
+![Gemini API](https://img.shields.io/badge/Gemini-GenAI-purple)
+![Gradio](https://img.shields.io/badge/Gradio-UI-green)
 
 ---
 
 ## Overview
 
-Financial institutions and payment platforms process millions of transactions every day. A small but costly fraction are fraudulent, and manual review at that scale is impossible. This project simulates how a data team would approach that problem end-to-end: starting from raw transaction records, exploring the data through SQL, engineering features, training and comparing multiple classification models, and packaging the results into a business-facing dashboard.
+Financial institutions and payment platforms process millions of transactions every day. A small but costly fraction are fraudulent, and manual review at that scale is impossible. This project simulates how a data team would approach that problem end-to-end: starting from raw transaction records, exploring the data through SQL, engineering features, training and comparing multiple classification models, packaging the results into a business-facing dashboard — and, most recently, adding a GenAI layer so the data is queryable in plain English, not just through SQL or a fixed dashboard.
 
 The goal wasn't just to train a model with high accuracy — it was to build a defensible, well-reasoned pipeline where every decision (which features matter, which model to deploy, which signals turned out to be irrelevant) is backed by evidence from the data itself.
 
@@ -29,9 +30,10 @@ The goal wasn't just to train a model with high accuracy — it was to build a d
 6. [Feature Engineering](#3-feature-engineering)
 7. [Model Building & Evaluation](#4-model-building--evaluation)
 8. [Business Intelligence Dashboard](#5-business-intelligence-dashboard)
-9. [Key Takeaways](#key-takeaways)
-10. [Future Improvements](#future-improvements)
-11. [Repository Structure](#repository-structure)
+9. [AI-Native Query Interface (GenAI Extension)](#6-ai-native-query-interface-genai-extension)
+10. [Key Takeaways](#key-takeaways)
+11. [Future Improvements](#future-improvements)
+12. [Repository Structure](#repository-structure)
 
 ---
 
@@ -56,6 +58,7 @@ The goal wasn't just to train a model with high accuracy — it was to build a d
 |---|---|
 | Data storage & querying | PostgreSQL 18 |
 | Data manipulation & ML | Python (Pandas, NumPy, scikit-learn, XGBoost) |
+| GenAI / Natural Language Interface | Google Gemini API, Gradio |
 | Visualization | Matplotlib, Seaborn, Power BI |
 | Version control | Git & GitHub |
 
@@ -83,6 +86,9 @@ Model training & comparison (Logistic Regression → Random Forest → XGBoost)
       │
       ▼
 Power BI dashboard (business-facing summary)
+      │
+      ▼
+GenAI natural language query layer (Gemini + Gradio)
 ```
 
 ---
@@ -181,19 +187,56 @@ A three-page Power BI dashboard translates the technical findings into a busines
 
 ---
 
+## 6. AI-Native Query Interface (GenAI Extension)
+
+The SQL analysis and Power BI dashboard above answer the questions I anticipated when I built them. But anyone wanting to ask a *new* question — one not already covered by an existing query or dashboard page — would need to know SQL. That's a real barrier for non-technical stakeholders (an investigator, a compliance analyst, a manager) who understand fraud patterns but don't write SQL.
+
+This extension closes that gap: a natural-language interface, built on top of the same PostgreSQL database, that lets anyone ask a question in plain English and get back both the generated SQL and the actual results.
+
+**How it works:**
+1. A user types a question in plain English (e.g. *"Which credit card has the highest fraud amount?"*)
+2. The question, the database schema, and a handful of example question→SQL pairs (few-shot prompting) are sent to the Gemini API
+3. Gemini generates a PostgreSQL query
+4. A safety guardrail checks the query — only `SELECT` statements are allowed; anything containing `DELETE`, `DROP`, `UPDATE`, `INSERT`, `ALTER`, or `TRUNCATE` is blocked before it ever reaches the database
+5. The query runs against the live `transactions` table and results are returned
+6. If the query fails to execute, the actual PostgreSQL error is sent back to Gemini, which self-corrects and retries automatically
+
+**Demo:**
+
+![Question, generated SQL, and results table showing the credit card with the highest fraud amount](./)
+
+*Example: asking "which credit card has the highest fraud amount" correctly generates a `GROUP BY`/`ORDER BY` query and returns the right answer — consistent with the SQL analysis in Section 1.*
+
+**Design decisions worth noting:**
+- **Safety-first:** the model only ever generates read-only queries; destructive operations are blocked programmatically, not just by prompting the model to "be careful."
+- **Resilience:** API calls automatically retry on transient server errors (503) and handle rate limits (429) without crashing the session.
+- **Self-healing:** a failed query's real error message is fed back to the model for one automatic correction attempt, reducing manual debugging.
+- **Few-shot prompting:** example question→SQL pairs drawn from this project's own analysis measurably improve the consistency of generated queries.
+
+**Running it locally:**
+```bash
+pip install google-genai gradio sqlalchemy psycopg2-binary pandas python-dotenv
+
+# .env file needed:
+# GEMINI_API_KEY=your_key_here
+# DB_PASSWORD=your_postgres_password
+
+python genai_query_interface.py
+```
+This opens a local Gradio interface at `http://127.0.0.1:7860`.
+
+*Note: this runs on Gemini's free API tier, which has a daily request quota. A production deployment would move to a paid tier for higher limits.*
+
+---
+
 ## Key Takeaways
 
 - **Time of day and transaction amount are the two dominant fraud signals** in this dataset — confirmed independently through SQL analysis and Random Forest feature importance.
 - **Distance and gender showed negligible predictive value** — a deliberate, evidence-based finding rather than an assumption.
 - **Random Forest was chosen over models with higher raw metrics** (XGBoost's ROC-AUC) because it offers the more *practically usable* precision-recall tradeoff for a real fraud-review process.
 - The project treats SQL and ML as complementary, not sequential afterthoughts — SQL findings directly shaped which features were engineered and gave an independent way to sanity-check the model's behavior.
+- **The GenAI layer extends accessibility, not analysis** — it doesn't replace the SQL/ML work above, it makes the same underlying database usable by people who don't write SQL.
 
-## Future Improvements
-
-- Threshold-tune XGBoost's decision boundary to see if it can match Random Forest's precision while keeping its higher recall
-- Validate the final model against the separate `fraudTest.csv` holdout set for a true out-of-sample check
-- Add a GenAI layer that generates a plain-English explanation for each flagged transaction, making the system usable by non-technical fraud analysts
-- Experiment with SMOTE-based oversampling as an alternative to class-weighting
 
 ## Repository Structure
 
@@ -202,12 +245,14 @@ fraud-risk-pipeline/
 ├── fraud_queries.sql              # All SQL exploratory analysis queries
 ├── eda.py                         # Python EDA + chart generation
 ├── model.py                       # Feature engineering + model training/evaluation
+├── genai_query_interface.py       # GenAI natural language query interface (Gemini + Gradio)
 ├── fraud_by_hour.png              # EDA chart
 ├── fraud_by_category.png          # EDA chart
 ├── amount_distribution.png        # EDA chart
 ├── page1_overview.png             # Dashboard screenshot
 ├── page2_deepdive.png             # Dashboard screenshot
 ├── page3_modelperformance.png     # Dashboard screenshot
+├── genai_demo.png                 # GenAI feature demo screenshot
 └── README.md
 ```
 
